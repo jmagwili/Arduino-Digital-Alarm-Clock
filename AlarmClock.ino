@@ -3,7 +3,7 @@
 #include <Ultrasonic.h>
 
 // Initialize LCD display
-LiquidCrystal_I2C lcd(0x27, 16, 2); // Change the I2C address if necessary
+LiquidCrystal_I2C lcd(0x27, 16, 2);
 
 // Ultrasonic sensor pins
 const int trigPin = 9;
@@ -15,7 +15,7 @@ Ultrasonic ultrasonic(trigPin, echoPin);
 // Alarm time variables
 int alarmHour = 0;
 int alarmMinute = 1;
-bool alarmEnabled = false;
+bool alarmEnabled = true;
 
 // Menu variables
 int menu = 0;
@@ -26,18 +26,24 @@ int setAlarmMin = 0;
 
 //************Button*****************//
 int P1=13; // Button SET MENU'
-int P2=12; // Button +
+int P2=12; // Button + (Change to PIN 12)
 int P3=11; // Button -
-int P4=9; // SWITCH Alarm
+int P4=5; // SWITCHAlarm (Change to PIN 8)
 
 int relay = 5;
 int buzzer = 6;
 
+// Object detection variables
+bool objectDetected = false;
+unsigned long objectDetectedStartTime = 0;
+
+unsigned long prevTime_T1 = millis();
+unsigned long prevTime_T2 = millis();
+
 void setup() {
   // Initialize LCD display
   lcd.begin(16, 2);
-  lcd.clear();
-
+  Serial.begin(9600);
   // Print initial message on the LCD
   lcd.setBacklight(1);
   lcd.setCursor(0, 0);
@@ -45,42 +51,46 @@ void setup() {
 }
 
 void loop() {
-  // Read the current time
-  int currentHour = hour();
-  int currentMinute = minute();
-  int currentSecond = second();
+  unsigned long currentTime = millis();
 
-  // Display the current time on the LCD
-  lcd.setCursor(0, 1);
-  lcd.setBacklight(1);
-  
-  // Check if it's time for the alarm
-  if (alarmEnabled && currentHour == alarmHour && currentMinute == alarmMinute) {
-    activateAlarm();
-  }else{
-    noTone (buzzer);
+  int currentHour;
+  int currentMinute;
+  int currentSecond;
+
+  if(currentTime - prevTime_T1 > 1000){
+    // Read the current time
+    currentHour = hour();
+    currentMinute = minute();
+    currentSecond = second();
+
+    lcd.setCursor(0, 1);
+    lcd.setBacklight(1);
+
+    if(menu == 0){
+      lcd.clear();
+      printTime(currentHour,currentMinute,currentSecond);
+    }
+    prevTime_T1 = currentTime;
   }
-
-  // if (ultrasonic.read() < 10) {
-  //   alarmEnabled = false;
-  //   lcd.clear();
-  //   lcd.setCursor(0, 0);
-  //   lcd.print("Alarm Disabled");
-  //   delay(1000);
-  // }
-
-  // Delay for 1 second
-  delay(1000);
-
+   
   if(digitalRead(P1)== HIGH){
    menu=menu+1;
-   Serial.print("menu incremented");
   }
-  // menu = 1;
-  if(menu==0){ 
+  if(digitalRead(P4)== HIGH){
     lcd.clear();
-    printTime(currentHour, currentMinute, currentSecond);
-  }else if(menu == 1){
+    lcd.setCursor(0, 0);
+    
+    if(alarmEnabled){
+      alarmEnabled = false;
+      lcd.print("ALARM DISABLED");
+    }else{
+      alarmEnabled = true;
+      lcd.print("ALARM ENABLED");
+    }
+    delay(1000);
+  }
+
+  if(menu == 1){
     displaySetHour();
   }else if(menu == 2){
     displaySetMin();
@@ -92,12 +102,49 @@ void loop() {
     saveAll();
   }
 
+  //  if (ultrasonic.read() < 10) {
+  //     Serial.println("detected");
+  //   }
+
+  //Check if it's time for the alarm
+  if (alarmEnabled && currentHour == alarmHour && currentMinute == alarmMinute) {
+    if (isObjectDetected()) {
+      alarmEnabled = false;
+      lcd.clear();
+      lcd.setCursor(0, 0);
+      lcd.print("Alarm Disabled");
+      delay(1000);
+      noTone(buzzer);
+    } else {
+      activateAlarm();
+    }
+  }
+  noTone(buzzer);
+
+  if(isObjectDetected()){
+    Serial.println("detected");
+    //delay(500);
+  }
+}
+
+bool isObjectDetected() {
+  // Measure the distance using the ultrasonic sensor
+  unsigned long currentTime = millis();
+  unsigned int distance = ultrasonic.read();
+
+  // Check if an object is within a specific range
+  if (distance < 10) { // Adjust the threshold based on your needs
+    return true;
+  } else {
+    return false;
+  }
 }
 
 // Print the time on the LCD in the format HH:MM:SS
 void printTime(int hours, int minutes, int seconds) {
-  lcd.print("Time: ");
   
+  lcd.print("TIME:  ");
+
   if (hours < 10) {
     lcd.print("0");
   }
@@ -112,6 +159,22 @@ void printTime(int hours, int minutes, int seconds) {
     lcd.print("0");
   }
   lcd.print(seconds);
+
+  lcd.setCursor(0, 1);
+  lcd.print("ALARM: ");
+  
+  if (alarmHour < 10) {
+  lcd.print("0");
+  }
+  lcd.print(alarmHour);
+  
+  lcd.print(":");
+  
+  if (alarmMinute < 10) {
+    lcd.print("0");
+  }
+  lcd.print(alarmMinute);
+
 }
 
 // Check if the current time matches the set alarm time
@@ -127,24 +190,27 @@ void checkAlarm() {
 
 // Activate the alarm (e.g., turn on a buzzer)
 void activateAlarm() {
-  // Implement your own logic here, such as turning on a buzzer
-  // For simplicity, we'll just print a message on the LCD
   lcd.clear();
   lcd.setBacklight(1);
   lcd.print("ALARM");
   // delay(5000); // Delay for 5 seconds
   //lcd.print("Time:");
 
-  tone(buzzer,880); //play the note "A5" (LA5)
+  tone(buzzer,880);
   lcd.setBacklight(0);
   delay (300);
-  tone(buzzer,698); //play the note "F6" (FA5)
+  tone(buzzer,698);
   lcd.setBacklight(1);
+  delay(1000);
 }
 
 void displaySetHour(){
+  unsigned long currentTime = millis();
+  
   setHour = hour();
+
   if(digitalRead(P2)==HIGH){
+    lcd.clear();
     if(setHour==23){
       setHour=0;
     }
@@ -153,6 +219,7 @@ void displaySetHour(){
     }
   }
   if(digitalRead(P3)==HIGH) {
+    lcd.clear();
     if(setHour==0){
       setHour=23;
     }
@@ -167,14 +234,7 @@ void displaySetHour(){
   lcd.print("Set Hour: ");
   lcd.print(setHour,DEC);
 
-  //setTime(setHour,0,50,day(),month(),year());
-
-  delay(200);
-
-  // if(setHour == 5){
-  //   menu=0;
-  // }
-  
+  delay(500); 
 }
 
 void displaySetMin(){
@@ -203,44 +263,34 @@ void displaySetMin(){
   lcd.print("Set Minute: ");
   lcd.print(setMin,DEC);
 
-  //setTime(hour(),setMin,second(),day(),month(),year());
-
-  delay(200);
-
-  // if(setMin == 5){
-  //   menu=0;
-  // } 
+  delay(500);
 }
 
 void displaySetAlarmHour(){
 
   if(digitalRead(P2)==HIGH){
     if(alarmHour==23){
-      alarmHour=0;
+      setAlarmHour=0;
     }
     else{
-      alarmHour+=1;
+      setAlarmHour+=1;
     }
   }
   if(digitalRead(P3)==HIGH) {
     if(alarmHour==0){
-      alarmHour=23;
+      setAlarmHour=23;
     }
     else{
-      alarmHour-=1;
+      setAlarmHour-=1;
     }
   }
   lcd.clear();
   lcd.setCursor(0,0);
   lcd.print("Set Alarm Hour: ");
   lcd.setCursor(0, 1);
-  lcd.print(alarmHour,DEC);
+  lcd.print(setAlarmHour,DEC);
   
-  delay(200);
-
-  // if(alarmHour == 5){
-  //   menu=0;
-  // } 
+  delay(500);
 }
 
 void displaySetAlarmMin(){
@@ -266,11 +316,7 @@ void displaySetAlarmMin(){
   lcd.print("Set Alarm Min. : ");
   lcd.setCursor(0, 1);
   lcd.print(setAlarmMin,DEC);
-  delay(200);
-
-  // if(setAlarmMin == 5){
-  //   menu=0;
-  // } 
+  delay(500);
 }
 
 void saveAll(){
@@ -280,10 +326,11 @@ void saveAll(){
   lcd.setCursor(0,1);
   lcd.print("PROGRESS");
   
-  setTime(setHour,setMin,second(),day(),month(),year());
+  setTime(setHour,setMin,0,day(),month(),year());
   alarmHour = setAlarmHour;
   alarmMinute = setAlarmMin;
+  alarmEnabled = true;
 
-  delay(200);
+  delay(1000);
   menu = 0;
 }
