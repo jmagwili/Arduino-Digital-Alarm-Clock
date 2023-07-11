@@ -6,6 +6,7 @@ This project implements an alarm clock using an Arduino board. The alarm clock a
 - Set an alarm time and enable/disable the alarm
 - Display the current time on the LCD screen
 - Activate an alarm with sound and visual indication
+- Disable an alarm by placing hand over the ultrasonic sensor
 
 ## Components Required
 - Arduino board (e.g., Arduino Uno)
